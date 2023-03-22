@@ -65,66 +65,23 @@ ros_management_prompt()
 
     # we disable the prompt for the version that was given in source (assumed to be the default/quiet version)
     if [[ $distro == "noetic" ]] || [[ $distro == "<unknown>" ]] || [[ $distro == "Debian" ]]; then
-        if [[ $default_ros != "1" ]]; then
-            local ROS_COLOR="\[\e[38;5;106m\]"  # noetic green
-            local ROS_PROMPT="${ROS_COLOR}[ROS1"
-        fi
+        local ROS_COLOR="\[\e[38;5;106m\]"  # noetic green
+        local ROS_PROMPT="${ROS_COLOR}[ROS1"
     else
-        if [[ $default_ros != "2" ]]; then
-            local ROS_COLOR=$(
-            case "$distro" in
+        local ROS_COLOR=$(
+        case "$distro" in
                 ("foxy") echo "166" ;;
                 ("galactic") echo "87" ;;
                 ("rolling") echo "40" ;;
                 ("humble") echo "74" ;;
                 (*) echo "255" ;;
-            esac)
-            local ROS_COLOR="\[\e[38;5;${ROS_COLOR}m\]"
-            local ROS_PROMPT="${ROS_COLOR}[ROS2"
-        fi
+        esac)
+        local ROS_COLOR="\[\e[38;5;${ROS_COLOR}m\]"
+        local ROS_PROMPT="${ROS_COLOR}[ROS2 ${distro}"
     fi
 
-    # split current PS1
-    if [[ "$PS1" =~ (.*\\\])(\[)(.*)(\]\\\[\\e\[0m\\\] )(.*) ]]; then
-        local cur_prompt=${BASH_REMATCH[3]}
-        # back to base PS1
-        export PS1=${BASH_REMATCH[5]}
-        # extract current special token, if any
-        if [[ $cur_prompt == *"@"* ]]; then
-            if [[ "$cur_prompt" =~ (ROS[12])(\\\[.*\\\])(@)(.*)(\\\[.*) ]]; then
-                local token_color=${BASH_REMATCH[2]}
-                local token=${BASH_REMATCH[4]}
-            fi
-        else
-            # special token only
-            if [[ $cur_prompt != "ROS"* ]]; then
-                local token_color=${BASH_REMATCH[1]}
-                local token=$cur_prompt
-            fi
-        fi
-    fi
-
-    if [[ "$1" != "__CLEAN" ]]; then
-
-        if [[ $# -ne 0 ]]; then
-            # override token
-            local token=$1
-            if [[ $# -eq 2 ]]; then
-            # add this color
-                local token_color="\[\e[38;5;$2m\]"
-            fi
-        fi
-        if [[ ! -z $token ]]; then
-            if [[ -z $ROS_PROMPT ]]; then
-                local ROS_PROMPT="${token_color}[$token"
-                unset ROS_COLOR
-            else
-                local ROS_PROMPT="$ROS_PROMPT${token_color}@$token"
-            fi
-        fi
-    fi
     if [[ ! -z $ROS_PROMPT ]]; then
-        export PS1="$ROS_PROMPT${ROS_COLOR}]\[\e[0m\] $PS1"
+        export PS1="$ROS_PROMPT${ROS_COLOR}]\[\e[0m\] $PS1_ori"
     fi
 }
 
@@ -331,6 +288,41 @@ colbuild()
                 cmd="$cmd  --packages-skip ros1_bridge"
             fi
               (cd $ws;eval $cmd)
+        fi
+        # source anyway
+        ros_management_register_workspace $ws
+    done
+}
+
+# some shortcuts
+catbuild() {
+    # Clean ROS 1 paths
+    ros_management_remove_all_paths $ros2_workspaces
+    unset ROS_DISTRO
+
+    # source ROS 2 workspaces up to this one (not including)
+    unset AMENT_PREFIX_PATH
+    unset AMENT_CURRENT_PREFIX
+    unset COLCON_PREFIX_PATH
+
+    local ws
+    local PWD="$(pwd)/"
+    for ws in $ros1_workspaces; do
+        # if in this workspace, run colcon
+        if [[ "$PWD" = "$ws/"* ]]; then
+            local cmd="catkin_make -DCMAKE_INSTALL_PREFIX=/opt/ecn/ROS1/install install"
+            # add all args, change -p to --packages-select and -pu to --packages-up-to
+            # also add -t / --this to compile the package we are in
+            for arg in $@; do
+                case "$arg" in
+                    ("-p") cmd="$cmd --pkg" ;;
+                    ("-pu") cmd="$cmd --only-pkg-with-deps" ;;
+                esac
+            done
+            (
+                cd $ws
+                eval $cmd
+            )
         fi
         # source anyway
         ros_management_register_workspace $ws
