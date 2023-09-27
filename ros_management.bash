@@ -8,12 +8,13 @@
 # ex: ros1_workspaces="/opt/ros/noetic $HOME/ros_ws1 $HOME/ros_ws2"
 
 # replace tilde by home dir in paths
-export ros1_workspaces="${ros1_workspaces//'~'/$HOME}"
-export ros2_workspaces="${ros2_workspaces//'~'/$HOME}"
+# export ros1_workspaces="${ros1_workspaces//'~'/$HOME}"
+# export ros2_workspaces="${ros2_workspaces//'~'/$HOME}"
 export PS1_ori=$PS1
 
 # store arguments to this script to be used in inner functions
 ROS_MANAGEMENT_ARGS="$*"
+echo "$PWD"
 
 
 # add a command for the next auto-init
@@ -46,66 +47,29 @@ ros_management_add()
     fi
 }
 
-# add ROS info to the prompt in order to know what version we use
-# also indicates on which robot we are working, if any
-ros_management_prompt()
-{
-    if [[ $ROS_MANAGEMENT_ARGS != *"-p"* ]] || [[ -z $(which rosversion) ]]; then
-        return
-    fi
-
-    local token_color="\[\e[39m\]"
-    local distro=$(rosversion -d)
-
-    # get sourced version, if any
-    local default_ros="0"
-    if [[ $ROS_MANAGEMENT_ARGS =~ (.*)(-ros)([12])(.*) ]]; then
-        local default_ros="${BASH_REMATCH[3]}"
-    fi
-
-    # we disable the prompt for the version that was given in source (assumed to be the default/quiet version)
-    if [[ $distro == "noetic" ]] || [[ $distro == "<unknown>" ]] || [[ $distro == "Debian" ]]; then
-        local ROS_COLOR="\[\e[38;5;106m\]"  # noetic green
-        local ROS_PROMPT="${ROS_COLOR}[ROS1"
-    else
-        local ROS_COLOR=$(
-        case "$distro" in
-                ("foxy") echo "166" ;;
-                ("galactic") echo "87" ;;
-                ("rolling") echo "40" ;;
-                ("humble") echo "74" ;;
-                (*) echo "255" ;;
-        esac)
-        local ROS_COLOR="\[\e[38;5;${ROS_COLOR}m\]"
-        local ROS_PROMPT="${ROS_COLOR}[ROS2 ${distro}"
-    fi
-
-    if [[ ! -z $ROS_PROMPT ]]; then
-        export PS1="$ROS_PROMPT${ROS_COLOR}]\[\e[0m\] $PS1_ori"
-    fi
-}
-
 # Takes a path string separated with colons and a list of sub-paths
 # Removes path elements containing sub-paths
-ros_management_remove_paths()
-{
-IFS=':' read -ra PATHES <<< "$1"
-local THISPATH=""
-local path
-for path in "${PATHES[@]}"; do
-  local to_remove=0
-  local i
-  for (( i=2; i <="$#"; i++ )); do
-    if [[ $path = *"${!i}"* ]]; then
-       to_remove=1
-       break
+ros_management_remove_paths() {
+    if [ -n "$ZSH_VERSION" ]; then
+        IFS=':' read -A PATHES <<< "$1"
+    else
+        IFS=':' read -ra PATHES <<< "$1"
     fi
-  done
-  if [ $to_remove -eq 0 ]; then
-    THISPATH="$THISPATH:$path"
-  fi
-done
-echo $THISPATH | cut -c2-
+    local THISPATH=""
+    local path
+    for path in "${PATHES[@]}"; do
+        local to_remove=0
+        for i in "${@:2}"; do
+        if [[ $path = $i ]]; then
+            to_remove=1
+            break
+            fi
+        done
+        if [ $to_remove -eq 0 ]; then
+            THISPATH="$THISPATH:$path"
+        fi
+    done
+    echo "$THISPATH[2,-1]"
 }
 
 # Takes a list of sub-paths
@@ -123,19 +87,30 @@ ros_management_remove_all_paths()
 # Register a single ROS 1 / 2 workspace, try to source in order : ws > ws/install > ws/devel
 ros_management_register_workspace()
 {
-local subs="/ /install/ /devel/"
-local sub
-for sub in $subs
-do
-    if [ -f "$1${sub}local_setup.bash" ]; then
-        source "$1${sub}local_setup.bash"
-        return
-    fi
-    if [ -f "$1${sub}local_setup.sh" ]; then
-        source "$1${sub}local_setup.sh"
-        return
-    fi
-done
+    local ldir="$PWD"
+    local subs=("/" "/install/" "/devel/")
+    local sub
+    for sub in $subs
+    do
+        if [ -f "$1${sub}local_setup.bash" ]; then
+            cd "$1${sub}"
+            source "$1${sub}local_setup.bash"
+            cd "$ldir"
+            return
+        fi
+        if [ -f "$1${sub}local_setup.sh" ]; then
+            cd "$1${sub}"
+            source "$1${sub}local_setup.sh"
+            cd "$ldir"
+            return
+        fi
+        if [ -f "$1${sub}setup.sh" ]; then
+            cd "$1${sub}"
+            source "$1${sub}setup.sh"
+            cd "$ldir"
+            return
+        fi
+    done
 }
 
 # Equivalent of roscd but jumps to the source
@@ -181,7 +156,7 @@ bloom-auto()
 ros1ws()
 {
     export ROS_VERSION=1
-    export ROS_DISTRO="<unknown>"
+    #export ROS_DISTRO="<unknown>"
     # Clean ROS 2 paths
     ros_management_remove_all_paths $ros2_workspaces
     unset ROS_DISTRO
@@ -203,7 +178,6 @@ ros1ws()
 
     # change prompt if you like (actually not by default)
     if [[ $# -eq 0 ]]; then
-        ros_management_prompt
         ros_management_add ros1ws
     fi
 }
@@ -217,8 +191,7 @@ ros2ws()
 
     # register ROS 2 workspaces
     local ws
-    for ws in $ros2_workspaces
-    do
+    for ws in "${ros2_workspaces[@]}"; do
         ros_management_register_workspace $ws
     done
 
@@ -233,7 +206,6 @@ ros2ws()
 
     # update ROS prompt
     if [[ $# -eq 0 ]]; then
-        ros_management_prompt
         ros_management_add ros2ws
     fi
 }
@@ -388,7 +360,7 @@ ros_restrict()
         # only update history and prompt if raw call
         if [[ $# -eq 1 ]]; then
             ros_management_add ros_restrict $interface
-            ros_management_prompt __CLEAN
+            #ros_management_prompt __CLEAN
         fi
         return
     fi
@@ -449,7 +421,7 @@ ros_restrict()
     # only update history and prompt if raw call
     if [[ $# -eq 1 ]]; then
         ros_management_add ros_restrict $interface
-        ros_management_prompt $interface 15
+        #ros_management_prompt $interface 15
     fi
 }
 
@@ -460,8 +432,6 @@ ros2restart()
 ros2 daemon stop
 ros2 daemon start
 }
-
-
 
 # special functions for network setup on Centrale Nantes's robots
 # show several usages of ros_restrict
@@ -474,7 +444,6 @@ ros_master()
 if [[ $# -eq 0 ]]; then
     unset ROS_MASTER_URI
     unset ROS_IP
-    ros_management_prompt __CLEAN
     ros_management_add ros_master
     return
 fi
@@ -487,7 +456,6 @@ else
     export ROS_MASTER_URI="http://$ROS_IP:11311"
 fi
 
-ros_management_prompt $1
 ros_management_add ros_master $1 $2
 }
 
@@ -500,44 +468,10 @@ ros_reset()
     # ROS_LOCALHOST_ONLY with cyclonedds URI
     ros_restrict lo --nohistory
 
-    ros_management_prompt __CLEAN
     ros_management_add ros_reset
 }
 
-ros_baxter()
-{
-    # ROS 1 uses Baxter's ROSMASTER through ethernet
-    # get all network interfaces
-    local ethernet_interface=$(ip link | awk -F: '$0 !~ "lo|vir|wl|^[^0-9]"{print $2;getline}')
-    # find valid ones on ETH
-    local ethernet_interface=$(for dev in $ethernet_interface; do [[ ! -e /sys/class/net/"$dev"/wireless && $(grep 1 /sys/class/net/"$dev"/carrier) ]] && echo ${dev##*/}; done)
-    ros_master $ethernet_interface "baxter.local"
-
-    # force ROS 2 on localhost, Baxter runs on ROS 1 anyway
-    ros_restrict lo --nohistory
-
-    # prompt and store
-    ros_management_prompt baxter 124
-    ros_management_add ros_baxter
-}
-
-ros_turtle()
-{
-    if [[ $# -eq 0 ]]; then
-        echo "Give a turtlebot number to setup ROS 2 connection"
-        return
-    fi
-
-    # Domain ID depends on turtlebot
-    export ROS_DOMAIN_ID=$1
-
-    # force ROS 2 on wifi, do not save it in history
-    ros_restrict WIFI --nohistory
-
-    # prompt and store
-    ros_management_prompt turtlebot$1 $((111+$1))
-    ros_management_add ros_turtle $1
-}
+setopt BASH_REMATCH
 
 # deal with auto init
 if [[ $ROS_MANAGEMENT_ARGS == *"-k"* ]] && [[ -e ~/.ros_management_auto_init ]]; then
@@ -547,7 +481,7 @@ else
 
     # check imposed ROS version
     if [[ $ROS_MANAGEMENT_ARGS =~ (.*)(-ros)([12])(.*) ]]; then
-        eval "ros${BASH_REMATCH[3]}ws"
+        eval "ros${BASH_REMATCH[4]}ws"
     fi
     
     # check localhost only
