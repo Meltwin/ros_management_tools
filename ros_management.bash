@@ -14,7 +14,6 @@ export PS1_ori=$PS1
 
 # store arguments to this script to be used in inner functions
 ROS_MANAGEMENT_ARGS="$*"
-echo "$PWD"
 
 
 # add a command for the next auto-init
